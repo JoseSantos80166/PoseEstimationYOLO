@@ -9,6 +9,10 @@ import os
 from copy import copy
 from pathlib import Path
 from urllib.error import URLError
+from utils.rotation import rotate_bound
+import json
+from urllib.request import urlopen
+from scipy import ndimage
 
 import cv2
 import matplotlib
@@ -83,7 +87,7 @@ class Annotator:
             self.im = im
         self.lw = line_width or max(round(sum(im.shape) / 2 * 0.003), 2)  # line width
 
-    def box_label(self, box, label='', color=(128, 128, 128), txt_color=(255, 255, 255), angle=0):
+    def box_label(self, box, label='', color=(128, 128, 128), txt_color=(255, 255, 255), angle=0, url="000.000.0.000:0000"):
         # Add one xyxy box to image with label
         if self.pil or not is_ascii(label):
             self.draw.rectangle(box, width=self.lw, outline=color)  # box
@@ -97,8 +101,28 @@ class Annotator:
                 # self.draw.text((box[0], box[1]), label, fill=txt_color, font=self.font, anchor='ls')  # for PIL>8.0
                 self.draw.text((box[0], box[1] - h if outside else box[1]), label, fill=txt_color, font=self.font)
         else:  # cv2  HERE TESE
+            if  angle==180:
+                fullurl = "http://"+url+"/sensors.json"
+                response = urlopen(fullurl)
+                data_json = json.loads(response.read())
+                Gravity_data_raw = data_json['gravity']  
+                Gravity_values = Gravity_data_raw['data']
+                Gravity_latestVal=Gravity_values[-1]
+                Gravity_final= Gravity_latestVal[1]
+                #print("Valor do sensor:")
+                
+                #VERSION 1
+                #print(Gravity_final[2])
+                #if Gravity_final[1]<0:
+                #    angle=(9.183*Gravity_final[1])
+                #else:
+                #    angle=(9.183*Gravity_final[1]+180)
 
-            rad= ((math.pi) / 180) * angle
+                angle=-9.183*Gravity_final[1]
+            else:
+                angle=angle
+
+            rad= ((math.pi) / 180) * angle 
             theta= rad
             p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3])) #LarguraLeftPoint, AlturaLeftPoint,  LarguraRightPoint , AlturaRightPoint MOVE BOX
             cosen=math.cos(theta)
@@ -109,16 +133,14 @@ class Annotator:
             y1=int(box[1])
             originx=((x1-x0)/2)+x0
             originy=((y1-y0)/2)+y0
-            #cv2.rectangle(self.im, p1, p2, color, thickness=self.lw, lineType=cv2.LINE_AA)
-            #countors=[((int(box[0])),(int(box[1]))),((int(box[0])),(int(box[3]))),((int(box[2])),(int(box[3]))),((int(box[2])),(int(box[1])))]
-            #countors= np.int0([((int(box[0])),(int(box[1]))),((int(box[0])),(int(box[3]))),((int(box[2])),(int(box[3]))),((int(box[2])),(int(box[1])))])
-            #countors= np.int0([(int(box[0])+0.5*(int(box[2])-int(box[0])),(int(box[3]))),((int(box[0])),int(box[3])+0.5*(int(box[1])-int(box[3]))),(int(box[0])+0.5*(int(box[2])-int(box[0])),(int(box[1]))),((int(box[2])),int(box[3])+0.5*(int(box[1])-int(box[3])))]) #ROTATED
+            
             countors = np.int0([        ((x0-originx)*cosen-(y1-originy)*seno + originx,(y1-originy)*cosen+(x0-originx)*seno+originy)     ,     ((x0-originx)*cosen-(y0-originy)*seno+originx ,(y0-originy)*cosen+(x0-originx)*seno+originy)        ,           ((x1-originx)*cosen-(y0-originy)*seno+originx ,(y0-originy)*cosen+(x1-originx)*seno+originy)             ,              ((x1-originx)*cosen-(y1-originy)*seno+originx ,(y1-originy)*cosen+(x1-originx)*seno+originy)])
+            
+           # self.im=ndimage.rotate(self.im, (angle-180),reshape=False)
+            
             cv2.drawContours(self.im,[countors],-1, color, thickness=self.lw, lineType=cv2.LINE_AA)
-            #cv2.drawContours(self.im, [(p1),(p2),(p1),(p2)],-1, color, thickness=self.lw, lineType=cv2.LINE_AA)
-            #countors = np.int0([(int(box[0])+int(box[0])*math.cos(theta)-int(box[1])*math.sin(theta) ,int(box[1])+int(box[1])*math.cos(theta)+int(box[0])*math.sin(theta)),(int(box[0])+int(box[0])*math.cos(theta)-int(box[3])*math.sin(theta) ,int(box[3])+int(box[3])*math.cos(theta)+int(box[0])*math.sin(theta)),(int(box[2])+int(box[2])*math.cos(theta)-int(box[3])*math.sin(theta) ,int(box[3])+int(box[3])*math.cos(theta)+int(box[2])*math.sin(theta)),(int(box[2])+int(box[2])*math.cos(theta)-int(box[1])*math.sin(theta) ,int(box[1])+int(box[1])*math.cos(theta)+int(box[2])*math.sin(theta))])
-
-
+            #self.im=ndimage.rotate(self.im, (angle)-180,reshape=False)
+            #self.im= rotate_bound(self.im, angle) #Just to check if the image is rotating correctly
 
 
             if label:

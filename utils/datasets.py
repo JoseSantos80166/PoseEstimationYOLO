@@ -17,6 +17,8 @@ from pathlib import Path
 from threading import Thread
 from urllib.parse import urlparse
 from zipfile import ZipFile
+from urllib.request import urlopen
+
 
 import cv2
 import numpy as np
@@ -32,6 +34,8 @@ from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterb
 from utils.general import (DATASETS_DIR, LOGGER, NUM_THREADS, check_dataset, check_requirements, check_yaml, clean_str,
                            segments2boxes, xyn2xy, xywh2xyxy, xywhn2xyxy, xyxy2xywhn)
 from utils.torch_utils import torch_distributed_zero_first
+from utils.rotation import rotate_bound
+
 
 # Remap
 cv2.imread = lambda x: cv2.imdecode(np.fromfile(x, np.uint8), cv2.IMREAD_COLOR)  # for Chinese filenames
@@ -205,6 +209,7 @@ class LoadImages:
         if self.video_flag[self.count]:
             # Read video
             self.mode = 'video'
+            self.cap.set(cv2.CV_CAP_PROP_BUFFERSIZE, 3)  #ALTERATION OF CACHE
             ret_val, img0 = self.cap.read()
             while not ret_val:
                 self.count += 1
@@ -237,6 +242,7 @@ class LoadImages:
 
     def new_video(self, path):
         self.frame = 0
+        self.cap.set(cv2.CV_CAP_PROP_BUFFERSIZE, 3)  #ALTERATION OF CACHE
         self.cap = cv2.VideoCapture(path)
         self.frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
@@ -267,7 +273,7 @@ class LoadWebcam:  # for inference
         # Read frame
         ret_val, img0 = self.cap.read()
         img0 = cv2.flip(img0, 1)  # flip left-right
-        img0=ndimage.rotate(img0, 45)
+        #img0=ndimage.rotate(img0, 45)      COMMENTED THIS, DONT KNOW WHY WAS ROTATING HERE
 
         # Print
         assert ret_val, f'Camera Error {self.pipe}'
@@ -289,11 +295,13 @@ class LoadWebcam:  # for inference
 
 class LoadStreams:
     # YOLOv5 streamloader, i.e. `python detect.py --source 'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP streams`
-    def __init__(self, sources='streams.txt', img_size=640, stride=32, auto=True, angle=0):
+    def __init__(self, sources='streams.txt', img_size=640, stride=32, auto=True, angle=0, url="000.000.0.000:0000"):
         self.mode = 'stream'
         self.img_size = img_size
         self.stride = stride
         self.angle=angle
+        self.url=url
+        
 
         if os.path.isfile(sources):
             with open(sources) as f:
@@ -305,6 +313,8 @@ class LoadStreams:
         self.imgs, self.fps, self.frames, self.threads = [None] * n, [0] * n, [0] * n, [None] * n
         self.sources = [clean_str(x) for x in sources]  # clean source names for later
         self.auto = auto
+
+
         for i, s in enumerate(sources):  # index, source
             # Start thread to read frames from video stream
             st = f'{i + 1}/{n}: {s}... '
@@ -314,6 +324,7 @@ class LoadStreams:
                 s = pafy.new(s).getbest(preftype="mp4").url  # YouTube URL
             s = eval(s) if s.isnumeric() else s  # i.e. s = '0' local webcam
             cap = cv2.VideoCapture(s)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)  #ALTERATION OF CACHE
             assert cap.isOpened(), f'{st}Failed to open {s}'
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -348,7 +359,7 @@ class LoadStreams:
                     LOGGER.warning('WARNING: Video stream unresponsive, please check your IP camera connection.')
                     self.imgs[i] = np.zeros_like(self.imgs[i])
                     cap.open(stream)  # re-open stream if signal was lost
-            time.sleep(1 / self.fps[i])  # wait time
+            #time.sleep(1 / self.fps[i])  # wait time   COMMENTED IN ORDER TO AVOID DELAYS IN THE STREAM
 
     def __iter__(self):
         self.count = -1
@@ -362,12 +373,29 @@ class LoadStreams:
 
         # Letterbox
         img0 = self.imgs.copy()
-        if self.angle==0:
-            img = [letterbox(x, self.img_size, stride=self.stride, auto=self.rect and self.auto)[0] for x in img0]
-        else:
-            img = [letterbox(ndimage.rotate(x, self.angle,reshape=False), self.img_size, stride=self.stride, auto=self.rect and self.auto)[0] for x in img0]
-        #ROTATION WORKED - x is the image passed to the model while "img" is the one being printed
 
+        fullurl = "http://"+self.url+"/sensors.json"
+        response = urlopen(fullurl)
+        data_json = json.loads(response.read())
+        Gravity_data_raw = data_json['gravity']  
+        Gravity_values = Gravity_data_raw['data']
+        Gravity_latestVal=Gravity_values[-1]
+        Gravity_final= Gravity_latestVal[1]
+        #print("Valor do sensor:")
+        #print(Gravity_final[2])
+        
+        #VERSION 1
+        #if Gravity_final[1]>0:
+        #    self.angle=-9.183*Gravity_final[1]
+        #else:
+        #    self.angle=9.183*Gravity_final[1]
+        
+        self.angle=-9.183*Gravity_final[1]
+
+        img = [letterbox(rotate_bound(x, self.angle), self.img_size, stride=self.stride, auto=self.rect and self.auto)[0] for x in img0]
+
+        #ROTATION WORKED - x is the image passed to the model while "img" is the one being printed
+        
         # Stack
         img = np.stack(img, 0)
 

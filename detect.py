@@ -27,6 +27,7 @@ Usage - formats:
 
 import argparse
 import os
+import string
 import sys
 from pathlib import Path
 
@@ -76,6 +77,7 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
         angle=0,     #Angle to rotate Bounding Boxes (JS)
+        url="000.000.0.000:0000", #Url for videofeed from android IP webcam(JS)
         ):
     print("SOURCE:")
     print(source)
@@ -101,7 +103,7 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
     if webcam:
         view_img = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, angle=angle)
+        dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, angle=angle, url=url)
         bs = len(dataset)  # batch_size
     else:
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
@@ -172,7 +174,7 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
-                        annotator.box_label(xyxy, label, color=colors(c, True),angle=angle)
+                        annotator.box_label(xyxy, label, color=colors(c, True),angle=angle,url=url)
                         if save_crop:
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
@@ -244,6 +246,7 @@ def parse_opt():
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
     parser.add_argument('--angle', default= 0, type=int,help='#Angle to rotate Bounding Boxes (JS)')
+    parser.add_argument('--url', default= "000.000.0.000:0000", type=str,help='#Url for videofeed from android IP webcam(JS)')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     print_args(FILE.stem, opt)
